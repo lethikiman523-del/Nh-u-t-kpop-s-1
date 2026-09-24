@@ -82,6 +82,7 @@ async function run() {
       dir,
       remote: 'origin',
       ref: 'main',
+      remoteRef: 'main',
       force: true,
       onAuth: () => ({
         username: token ? 'x-access-token' : 'lethikiman523-del',
