@@ -1,0 +1,8 @@
+{
+  "name": "Remix Nhà đầu tư IDOL K-POP số 1",
+  "description": "Trò chơi cho 5 người chơi tham gia bằng mã PIN, ngân sách 1 tỷ won xây dựng nhóm nhạc K-POP và khán giả vào link bình chọn.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
