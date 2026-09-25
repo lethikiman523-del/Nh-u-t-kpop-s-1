@@ -78,12 +78,12 @@ export const AudienceMobileVoting: React.FC<AudienceMobileVotingProps> = ({
     sound.playBuy();
   };
 
-  // Determine shuffled order for candidate groups
+  // Determine stable order for candidate groups (never jumps on vote)
   const shuffledCandidates: Player[] = useMemo(() => {
     const list = [...roomState.players];
     const serverOrder = roomState.shuffledVotingOrder;
 
-    if (serverOrder && serverOrder.length > 0 && localShuffleSeed === 0) {
+    if (serverOrder && serverOrder.length > 0) {
       const map = new Map(list.map((p) => [p.id, p]));
       const ordered: Player[] = [];
       for (const id of serverOrder) {
@@ -96,17 +96,12 @@ export const AudienceMobileVoting: React.FC<AudienceMobileVotingProps> = ({
       return ordered;
     }
 
-    // Local shuffle using Fisher-Yates
-    for (let i = list.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [list[i], list[j]] = [list[j], list[i]];
-    }
-    return list;
-  }, [roomState.players, roomState.shuffledVotingOrder, localShuffleSeed]);
+    // Default stable sort by seatNumber so cards never jump when a vote is cast
+    return list.sort((a, b) => a.seatNumber - b.seatNumber);
+  }, [roomState.players, roomState.shuffledVotingOrder]);
 
   const handleReshuffle = () => {
     sound.playBuy();
-    setLocalShuffleSeed((prev) => prev + 1);
     if (onShuffleVotingOrder) {
       onShuffleVotingOrder();
     }
