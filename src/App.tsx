@@ -15,6 +15,7 @@ import { PlayerCodesModal } from './components/PlayerCodesModal';
 import { KpopMusicPlayer } from './components/KpopMusicPlayer';
 import { sound } from './utils/audio';
 import { createDefaultRoomState, applyClientRoomAction } from './utils/defaultState';
+import { cloudSync } from './utils/cloudSync';
 
 const getRoomIdFromUrl = () => {
   if (typeof window === 'undefined') return 'KPOP1';
@@ -56,15 +57,19 @@ export default function App() {
     }
   }, []);
 
-  // Sync state helper (with automatic optimistic local update + REST/WS sync)
+  // Sync state helper (with automatic optimistic local update + WebRTC P2P + REST/WS sync)
   const sendWs = (msg: WsMessage) => {
     // Optimistically update local state so every button click responds in 0ms
     setRoomState((prevRoom) => {
       if (!prevRoom) return prevRoom;
       const nextRoom = JSON.parse(JSON.stringify(prevRoom));
       applyClientRoomAction(nextRoom, msg);
+      cloudSync.broadcastState(nextRoom);
       return nextRoom;
     });
+
+    // Send action via WebRTC P2P to Host
+    cloudSync.sendActionToHost(msg);
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
@@ -76,16 +81,32 @@ export default function App() {
       })
         .then((res) => res.json())
         .then((data) => {
-          if (data && data.room) setRoomState(data.room);
+          if (data && data.room) {
+            setRoomState(data.room);
+            cloudSync.broadcastState(data.room);
+          }
         })
         .catch(console.error);
     }
   };
 
-  // Connect WebSocket & Poll as fallback
+  // Connect WebRTC P2P DataChannel, WebSocket & Poll as fallback
   useEffect(() => {
     let ws: WebSocket;
     let pollInterval: any;
+
+    // Initialize WebRTC P2P DataChannel Cloud Sync
+    if (!isAudienceView && authenticatedPlayerSeat === null) {
+      // Host / Main Screen
+      cloudSync.initHost(currentRoomId, roomState, (msgFromMobile) => {
+        sendWs(msgFromMobile);
+      });
+    } else {
+      // Client / Player Mobile / Audience
+      cloudSync.initClient(currentRoomId, (newState) => {
+        if (newState) setRoomState(newState);
+      });
+    }
 
     const connectWebSocket = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -103,6 +124,7 @@ export default function App() {
           const msg: WsMessage = JSON.parse(event.data);
           if (msg.type === 'SYNC_STATE' && msg.payload) {
             setRoomState(msg.payload);
+            cloudSync.broadcastState(msg.payload);
           }
         } catch (err) {
           console.error('Failed to parse WS state:', err);
@@ -111,12 +133,11 @@ export default function App() {
 
       ws.onclose = () => {
         setConnected(false);
-        // Try reconnecting in 3 seconds
         setTimeout(connectWebSocket, 3000);
       };
 
       ws.onerror = (err) => {
-        console.warn('WebSocket error, falling back to REST sync', err);
+        console.warn('WebSocket error, falling back to WebRTC & REST sync', err);
       };
     };
 
@@ -130,6 +151,7 @@ export default function App() {
           if (data && data.roomId) {
             setRoomState((prev) => {
               if (!prev || JSON.stringify(prev) !== JSON.stringify(data)) {
+                cloudSync.broadcastState(data);
                 return data;
               }
               return prev;
@@ -145,8 +167,9 @@ export default function App() {
     return () => {
       if (ws) ws.close();
       if (pollInterval) clearInterval(pollInterval);
+      cloudSync.destroy();
     };
-  }, [currentRoomId]);
+  }, [currentRoomId, isAudienceView, authenticatedPlayerSeat]);
 
   if (!roomState) {
     return (
