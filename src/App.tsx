@@ -14,9 +14,17 @@ import { PlayerPinLogin } from './components/PlayerPinLogin';
 import { PlayerCodesModal } from './components/PlayerCodesModal';
 import { KpopMusicPlayer } from './components/KpopMusicPlayer';
 import { sound } from './utils/audio';
+import { createDefaultRoomState } from './utils/defaultState';
+
+const getRoomIdFromUrl = () => {
+  if (typeof window === 'undefined') return 'KPOP1';
+  const params = new URLSearchParams(window.location.search);
+  return (params.get('room') || 'KPOP1').toUpperCase();
+};
 
 export default function App() {
-  const [roomState, setRoomState] = useState<RoomState | null>(null);
+  const currentRoomId = getRoomIdFromUrl();
+  const [roomState, setRoomState] = useState<RoomState>(() => createDefaultRoomState(currentRoomId));
   const [activePlayerId, setActivePlayerId] = useState<string>('player-1');
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isPlayerCodesModalOpen, setIsPlayerCodesModalOpen] = useState(false);
@@ -27,15 +35,6 @@ export default function App() {
   const [connected, setConnected] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
-
-  // Extract query params for room and role
-  const getRoomIdFromUrl = () => {
-    if (typeof window === 'undefined') return 'KPOP1';
-    const params = new URLSearchParams(window.location.search);
-    return (params.get('room') || 'KPOP1').toUpperCase();
-  };
-
-  const currentRoomId = getRoomIdFromUrl();
 
   // Check if opened as audience on mobile via QR scan or as a player
   useEffect(() => {

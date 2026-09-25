@@ -4,9 +4,8 @@ import path from "path";
 import os from "os";
 import fs from "fs";
 import { WebSocketServer, WebSocket } from "ws";
-import { createServer as createViteServer } from "vite";
-import { RoomState, Player, WsMessage, VoteRecord, AudienceReaction, GamePhase, ActivityEvent } from "./src/types.js";
-import { IDOL_ROSTER, TOTAL_BUDGET, DEFAULT_PLAYER_SEATS } from "./src/data/idols.js";
+import { RoomState, Player, WsMessage, VoteRecord, AudienceReaction, GamePhase, ActivityEvent } from "./src/types";
+import { IDOL_ROSTER, TOTAL_BUDGET, DEFAULT_PLAYER_SEATS } from "./src/data/idols";
 
 const PORT = 3000;
 const app = express();
@@ -642,6 +641,7 @@ async function startServer() {
       res.sendFile(distIndex);
     });
   } else {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
