@@ -14,7 +14,7 @@ import { PlayerPinLogin } from './components/PlayerPinLogin';
 import { PlayerCodesModal } from './components/PlayerCodesModal';
 import { KpopMusicPlayer } from './components/KpopMusicPlayer';
 import { sound } from './utils/audio';
-import { createDefaultRoomState, applyClientRoomAction } from './utils/defaultState';
+import { createDefaultRoomState, applyClientRoomAction, mergeRoomStates } from './utils/defaultState';
 import { cloudSync } from './utils/cloudSync';
 
 const getRoomIdFromUrl = () => {
@@ -82,8 +82,11 @@ export default function App() {
         .then((res) => res.json())
         .then((data) => {
           if (data && data.room) {
-            setRoomState(data.room);
-            cloudSync.broadcastState(data.room);
+            setRoomState((prev) => {
+              const merged = mergeRoomStates(prev, data.room);
+              cloudSync.broadcastState(merged);
+              return merged;
+            });
           }
         })
         .catch(console.error);
@@ -104,7 +107,9 @@ export default function App() {
     } else {
       // Client / Player Mobile / Audience
       cloudSync.initClient(currentRoomId, (newState) => {
-        if (newState) setRoomState(newState);
+        if (newState) {
+          setRoomState((prev) => mergeRoomStates(prev, newState));
+        }
       });
     }
 
@@ -123,8 +128,11 @@ export default function App() {
         try {
           const msg: WsMessage = JSON.parse(event.data);
           if (msg.type === 'SYNC_STATE' && msg.payload) {
-            setRoomState(msg.payload);
-            cloudSync.broadcastState(msg.payload);
+            setRoomState((prev) => {
+              const merged = mergeRoomStates(prev, msg.payload);
+              cloudSync.broadcastState(merged);
+              return merged;
+            });
           }
         } catch (err) {
           console.error('Failed to parse WS state:', err);
@@ -150,9 +158,10 @@ export default function App() {
         .then((data) => {
           if (data && data.roomId) {
             setRoomState((prev) => {
-              if (!prev || JSON.stringify(prev) !== JSON.stringify(data)) {
-                cloudSync.broadcastState(data);
-                return data;
+              const merged = mergeRoomStates(prev, data);
+              if (JSON.stringify(prev) !== JSON.stringify(merged)) {
+                cloudSync.broadcastState(merged);
+                return merged;
               }
               return prev;
             });

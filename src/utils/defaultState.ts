@@ -1,4 +1,4 @@
-import { RoomState, Player, WsMessage, VoteRecord, GamePhase, ActivityEvent } from '../types';
+import { RoomState, Player, WsMessage, VoteRecord, GamePhase, ActivityEvent, AudienceReaction } from '../types';
 import { DEFAULT_PLAYER_SEATS, TOTAL_BUDGET, IDOL_ROSTER } from '../data/idols';
 
 export function createDefaultPlayers(): Player[] {
@@ -44,11 +44,61 @@ export function createDefaultRoomState(roomId: string = 'KPOP1'): RoomState {
   };
 }
 
-function pushActivity(room: RoomState, activity: ActivityEvent) {
+export function pushActivity(room: RoomState, activity: ActivityEvent) {
+  if (!room.recentActivities) room.recentActivities = [];
   room.recentActivities.unshift(activity);
-  if (room.recentActivities.length > 40) {
-    room.recentActivities = room.recentActivities.slice(0, 40);
+  if (room.recentActivities.length > 50) {
+    room.recentActivities = room.recentActivities.slice(0, 50);
   }
+}
+
+export function mergeRoomStates(existing: RoomState | null, incoming: RoomState | null): RoomState {
+  if (!incoming && existing) return existing;
+  if (!existing && incoming) return incoming;
+  if (!existing && !incoming) return createDefaultRoomState('KPOP1');
+
+  const ex = existing as RoomState;
+  const inc = incoming as RoomState;
+
+  // Merge activities (de-duplicate by ID)
+  const activityMap = new Map<string, ActivityEvent>();
+  (ex.recentActivities || []).forEach((a) => activityMap.set(a.id, a));
+  (inc.recentActivities || []).forEach((a) => activityMap.set(a.id, a));
+  const mergedActivities = Array.from(activityMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+
+  // Merge players (keep whichever player has more idols or updated groupDetails)
+  const mergedPlayers = ex.players.map((exPlayer) => {
+    const incPlayer = inc.players.find((p) => p.id === exPlayer.id);
+    if (!incPlayer) return exPlayer;
+
+    const useIncIdols = (incPlayer.idols || []).length >= (exPlayer.idols || []).length;
+    return {
+      ...exPlayer,
+      ...incPlayer,
+      name: incPlayer.name !== `Nhà đầu tư ${exPlayer.seatNumber}` ? incPlayer.name : exPlayer.name,
+      agencyName: incPlayer.agencyName !== `Agency ${exPlayer.seatNumber}` ? incPlayer.agencyName : exPlayer.agencyName,
+      avatar: incPlayer.avatar || exPlayer.avatar,
+      idols: useIncIdols ? (incPlayer.idols || []) : (exPlayer.idols || []),
+      balance: useIncIdols ? incPlayer.balance : exPlayer.balance,
+      groupDetails: incPlayer.groupDetails || exPlayer.groupDetails,
+      isReady: incPlayer.isReady || exPlayer.isReady,
+    };
+  });
+
+  // Merge votes & reactions
+  const votes = { ...ex.votes, ...inc.votes };
+  const reactionMap = new Map<string, AudienceReaction>();
+  (ex.audienceReactions || []).forEach((r) => reactionMap.set(r.id, r));
+  (inc.audienceReactions || []).forEach((r) => reactionMap.set(r.id, r));
+
+  return {
+    ...inc,
+    phase: inc.phase && inc.phase !== 'LOBBY' ? inc.phase : ex.phase,
+    players: mergedPlayers,
+    recentActivities: mergedActivities,
+    votes,
+    audienceReactions: Array.from(reactionMap.values()).slice(-50),
+  };
 }
 
 export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): boolean {
@@ -71,7 +121,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
           anonymousActor: player.anonymousCodename,
           realActor: player.name,
           actionType: 'CLAIM',
-          details: `đã nhận vị trí Nhà đầu tư #${player.seatNumber}`,
+          details: `đã nhận vị trí Nhà đầu tư #${player.seatNumber} (${player.name} - ${player.agencyName})`,
         });
         return true;
       }
@@ -248,6 +298,16 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
         if (activeRoom.audienceReactions.length > 50) {
           activeRoom.audienceReactions = activeRoom.audienceReactions.slice(-50);
         }
+
+        pushActivity(activeRoom, {
+          id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp: Date.now(),
+          seatNumber: targetPlayer.seatNumber,
+          anonymousActor: record.voterName,
+          realActor: record.voterName,
+          actionType: 'GROUP_SUBMIT',
+          details: `vừa bình chọn cho nhóm ${record.groupName}! ${record.comment ? `("${record.comment}")` : ''}`,
+        });
         return true;
       }
       break;
