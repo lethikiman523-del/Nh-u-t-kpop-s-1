@@ -14,7 +14,7 @@ import { PlayerPinLogin } from './components/PlayerPinLogin';
 import { PlayerCodesModal } from './components/PlayerCodesModal';
 import { KpopMusicPlayer } from './components/KpopMusicPlayer';
 import { sound } from './utils/audio';
-import { createDefaultRoomState, applyClientRoomAction, mergeRoomStates } from './utils/defaultState';
+import { createDefaultRoomState, getInitialRoomState, applyClientRoomAction, mergeRoomStates } from './utils/defaultState';
 import { cloudSync } from './utils/cloudSync';
 
 const getRoomIdFromUrl = () => {
@@ -25,7 +25,8 @@ const getRoomIdFromUrl = () => {
 
 export default function App() {
   const currentRoomId = getRoomIdFromUrl();
-  const [roomState, setRoomState] = useState<RoomState>(() => createDefaultRoomState(currentRoomId));
+  const [roomState, setRoomState] = useState<RoomState>(() => getInitialRoomState(currentRoomId));
+  const [isSyncingInitialState, setIsSyncingInitialState] = useState<boolean>(true);
   const [activePlayerId, setActivePlayerId] = useState<string>('player-1');
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isPlayerCodesModalOpen, setIsPlayerCodesModalOpen] = useState(false);
@@ -36,6 +37,14 @@ export default function App() {
   const [connected, setConnected] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Initial sync timer: spinner overlay for 600ms on reload
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsSyncingInitialState(false);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Check if opened as audience on mobile via QR scan or as a player
   useEffect(() => {
@@ -316,6 +325,17 @@ export default function App() {
     setSoundEnabled(next);
     sound.enabled = next;
   };
+
+  // Show spinner loader overlay on fresh load / reload while restoring room state
+  if (isSyncingInitialState && (!roomState || !roomState.players || roomState.players.every((p) => (p.idols || []).length === 0 && p.name.startsWith('Nhà đầu tư')))) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-center text-white">
+        <div className="w-12 h-12 rounded-full border-4 border-pink-500 border-t-transparent animate-spin mb-4" />
+        <h2 className="text-xl font-bold">Đang khôi phục bàn chơi "Nhà đầu tư IDOL K-POP số 1"...</h2>
+        <p className="text-xs text-slate-400 mt-1">Đồng bộ dữ liệu thời gian thực</p>
+      </div>
+    );
+  }
 
   // If mobile player view is active for a specific seat
   if (authenticatedPlayerSeat !== null) {

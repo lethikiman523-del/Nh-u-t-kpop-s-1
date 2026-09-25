@@ -44,6 +44,22 @@ export function createDefaultRoomState(roomId: string = 'KPOP1'): RoomState {
   };
 }
 
+export function getInitialRoomState(roomId: string = 'KPOP1'): RoomState {
+  const normalizedId = roomId.trim().toUpperCase() || 'KPOP1';
+  try {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem(`kpop_room_state_${normalizedId}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.roomId && Array.isArray(parsed.players) && parsed.players.length > 0) {
+          return parsed;
+        }
+      }
+    }
+  } catch (err) {}
+  return createDefaultRoomState(normalizedId);
+}
+
 export function pushActivity(room: RoomState, activity: ActivityEvent) {
   if (!room.recentActivities) room.recentActivities = [];
   room.recentActivities.unshift(activity);
@@ -91,7 +107,7 @@ export function mergeRoomStates(existing: RoomState | null, incoming: RoomState 
   (ex.audienceReactions || []).forEach((r) => reactionMap.set(r.id, r));
   (inc.audienceReactions || []).forEach((r) => reactionMap.set(r.id, r));
 
-  return {
+  const merged: RoomState = {
     ...inc,
     phase: inc.phase && inc.phase !== 'LOBBY' ? inc.phase : ex.phase,
     players: mergedPlayers,
@@ -99,10 +115,20 @@ export function mergeRoomStates(existing: RoomState | null, incoming: RoomState 
     votes,
     audienceReactions: Array.from(reactionMap.values()).slice(-50),
   };
+
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`kpop_room_state_${merged.roomId}`, JSON.stringify(merged));
+    }
+  } catch (err) {}
+
+  return merged;
 }
 
 export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): boolean {
   if (!msg || !msg.type) return false;
+
+  let modified = false;
 
   switch (msg.type) {
     case 'CLAIM_SEAT': {
@@ -123,7 +149,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
           actionType: 'CLAIM',
           details: `đã nhận vị trí Nhà đầu tư #${player.seatNumber} (${player.name} - ${player.agencyName})`,
         });
-        return true;
+        modified = true;
       }
       break;
     }
@@ -150,7 +176,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
             details: `vừa chiêu mộ ${idol.name} (${idol.originalGroup}) với giá ${priceStr} Triệu Won!`,
             amount: idol.price,
           });
-          return true;
+          modified = true;
         }
       }
       break;
@@ -176,7 +202,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
           details: `vừa chuyển nhượng ${removed.name}, thu hồi ${priceStr} Triệu Won!`,
           amount: removed.price,
         });
-        return true;
+        modified = true;
       }
       break;
     }
@@ -197,20 +223,22 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
           actionType: 'GROUP_SUBMIT',
           details: `vừa hoàn tất cấu hình nhóm nhạc "${groupDetails.groupName || 'Đội Hình Mới'}" (Concept: ${groupDetails.concept || 'Tự do'})!`,
         });
-        return true;
+        modified = true;
       }
       break;
     }
 
     case 'TOGGLE_ANONYMOUS_MODE': {
       activeRoom.isAnonymousMode = !activeRoom.isAnonymousMode;
-      return true;
+      modified = true;
+      break;
     }
 
     case 'REVEAL_IDENTITIES': {
       activeRoom.revealIdentities = true;
       activeRoom.isAnonymousMode = false;
-      return true;
+      modified = true;
+      break;
     }
 
     case 'SET_READY': {
@@ -218,7 +246,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
       const player = activeRoom.players.find((p) => p.id === playerId);
       if (player) {
         player.isReady = isReady;
-        return true;
+        modified = true;
       }
       break;
     }
@@ -249,7 +277,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
           }
           activeRoom.winnerPlayerId = winnerId;
         }
-        return true;
+        modified = true;
       }
       break;
     }
@@ -257,7 +285,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
     case 'SET_SHOWCASE_PLAYER': {
       if (msg.payload?.playerId) {
         activeRoom.activeShowcasePlayerId = msg.payload.playerId;
-        return true;
+        modified = true;
       }
       break;
     }
@@ -308,7 +336,7 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
           actionType: 'GROUP_SUBMIT',
           details: `vừa bình chọn cho nhóm ${record.groupName}! ${record.comment ? `("${record.comment}")` : ''}`,
         });
-        return true;
+        modified = true;
       }
       break;
     }
@@ -325,7 +353,8 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
       if (activeRoom.audienceReactions.length > 50) {
         activeRoom.audienceReactions = activeRoom.audienceReactions.slice(-50);
       }
-      return true;
+      modified = true;
+      break;
     }
 
     case 'RESET_GAME': {
@@ -347,9 +376,18 @@ export function applyClientRoomAction(activeRoom: RoomState, msg: WsMessage): bo
       activeRoom.winnerPlayerId = undefined;
       activeRoom.isAnonymousMode = false;
       activeRoom.revealIdentities = true;
-      return true;
+      modified = true;
+      break;
     }
   }
 
-  return false;
+  if (modified) {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`kpop_room_state_${activeRoom.roomId}`, JSON.stringify(activeRoom));
+      }
+    } catch (err) {}
+  }
+
+  return modified;
 }
