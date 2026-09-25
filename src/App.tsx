@@ -14,7 +14,7 @@ import { PlayerPinLogin } from './components/PlayerPinLogin';
 import { PlayerCodesModal } from './components/PlayerCodesModal';
 import { KpopMusicPlayer } from './components/KpopMusicPlayer';
 import { sound } from './utils/audio';
-import { createDefaultRoomState } from './utils/defaultState';
+import { createDefaultRoomState, applyClientRoomAction } from './utils/defaultState';
 
 const getRoomIdFromUrl = () => {
   if (typeof window === 'undefined') return 'KPOP1';
@@ -56,13 +56,19 @@ export default function App() {
     }
   }, []);
 
-
-  // Sync state helper (with automatic REST fallback if WebSocket is disconnected)
+  // Sync state helper (with automatic optimistic local update + REST/WS sync)
   const sendWs = (msg: WsMessage) => {
+    // Optimistically update local state so every button click responds in 0ms
+    setRoomState((prevRoom) => {
+      if (!prevRoom) return prevRoom;
+      const nextRoom = JSON.parse(JSON.stringify(prevRoom));
+      applyClientRoomAction(nextRoom, msg);
+      return nextRoom;
+    });
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
     } else {
-      // Fallback REST call for all actions if WS is disconnected/mobile screen asleep
       fetch(`/api/rooms/${currentRoomId}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
