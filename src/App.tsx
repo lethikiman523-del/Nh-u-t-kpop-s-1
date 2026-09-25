@@ -16,6 +16,8 @@ import { KpopMusicPlayer } from './components/KpopMusicPlayer';
 import { sound } from './utils/audio';
 import { createDefaultRoomState, applyClientRoomAction, mergeRoomStates } from './utils/defaultState';
 import { cloudSync } from './utils/cloudSync';
+import { ToastNotification, ToastMessage } from './components/ToastNotification';
+import { IDOL_ROSTER } from './data/idols';
 
 const getRoomIdFromUrl = () => {
   if (typeof window === 'undefined') return 'KPOP1';
@@ -34,8 +36,126 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isAudienceView, setIsAudienceView] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Trigger Host Toast Notification on Mobile / Player Action
+  const triggerToastForMessage = (msg: WsMessage, currentRoom: RoomState) => {
+    if (!msg || !msg.type) return;
+    const isHostDevice = !isAudienceView && authenticatedPlayerSeat === null;
+    if (!isHostDevice) return;
+
+    switch (msg.type) {
+      case 'BUY_IDOL': {
+        const player = currentRoom.players.find((p) => p.id === msg.payload?.playerId);
+        const idol = IDOL_ROSTER.find((i) => i.id === msg.payload?.idolId);
+        if (player && idol) {
+          const priceStr = (idol.price / 1_000_000).toLocaleString('vi-VN');
+          setToasts((prev) => [
+            {
+              id: `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              type: 'BUY',
+              title: 'CHIÊU MỘ IDOL MỚI!',
+              actorName: `${player.name} (${player.agencyName})`,
+              description: `Vừa chiêu mộ ${idol.name} (${idol.originalGroup}) với giá ${priceStr} Triệu Won!`,
+              timestamp: Date.now(),
+            },
+            ...prev,
+          ].slice(0, 4));
+          sound.playBuy();
+        }
+        break;
+      }
+      case 'SELL_IDOL': {
+        const player = currentRoom.players.find((p) => p.id === msg.payload?.playerId);
+        const idol = IDOL_ROSTER.find((i) => i.id === msg.payload?.idolId);
+        if (player && idol) {
+          const priceStr = (idol.price / 1_000_000).toLocaleString('vi-VN');
+          setToasts((prev) => [
+            {
+              id: `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              type: 'SELL',
+              title: 'CHUYỂN NHƯỢNG IDOL!',
+              actorName: `${player.name} (${player.agencyName})`,
+              description: `Vừa chuyển nhượng ${idol.name}, thu hồi ${priceStr} Triệu Won!`,
+              timestamp: Date.now(),
+            },
+            ...prev,
+          ].slice(0, 4));
+          sound.playBuy();
+        }
+        break;
+      }
+      case 'SUBMIT_GROUP': {
+        const player = currentRoom.players.find((p) => p.id === msg.payload?.playerId);
+        const g = msg.payload?.groupDetails;
+        if (player && g) {
+          setToasts((prev) => [
+            {
+              id: `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              type: 'GROUP_SUBMIT',
+              title: 'HOÀN TẤT ĐỘI HÌNH DEBUT!',
+              actorName: `${player.name} (${player.agencyName})`,
+              description: `Vừa cấu hình xong nhóm "${g.groupName || 'Ứng Viên'}" - Concept: ${g.concept || 'Tự do'}!`,
+              timestamp: Date.now(),
+            },
+            ...prev,
+          ].slice(0, 4));
+          sound.playCheer();
+        }
+        break;
+      }
+      case 'CAST_VOTE': {
+        const { voterName, playerId, comment } = msg.payload || {};
+        const target = currentRoom.players.find((p) => p.id === playerId);
+        setToasts((prev) => [
+          {
+            id: `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            type: 'VOTE',
+            title: 'BÌNH CHỌN KHÁN GIẢ TRỰC TIẾP!',
+            actorName: voterName || 'Khán giả K-POP',
+            description: `Vừa bình chọn 1 phiếu cho ${target?.groupDetails?.groupName || target?.name || 'Nhóm nhạc'}! ${comment ? `("${comment}")` : ''}`,
+            timestamp: Date.now(),
+          },
+          ...prev,
+        ].slice(0, 4));
+        sound.playCheer();
+        break;
+      }
+      case 'CLAIM_SEAT': {
+        const { name, agencyName, seatNumber } = msg.payload || {};
+        setToasts((prev) => [
+          {
+            id: `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            type: 'CLAIM',
+            title: 'NHẬN GHẾ NHÀ ĐẦU TƯ!',
+            actorName: name || `Nhà đầu tư #${seatNumber}`,
+            description: `Đã sẵn sàng điều khiển tại Ghế #${seatNumber} (${agencyName || 'Agency'})!`,
+            timestamp: Date.now(),
+          },
+          ...prev,
+        ].slice(0, 4));
+        sound.playBuy();
+        break;
+      }
+      case 'SEND_REACTION': {
+        const { emoji, sender, groupName } = msg.payload || {};
+        setToasts((prev) => [
+          {
+            id: `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            type: 'REACTION',
+            title: 'CỔ VŨ THỜI GIAN THỰC!',
+            actorName: sender || 'Fan K-POP',
+            description: `Vừa thả ${emoji || '💖'} cổ vũ cho nhóm ${groupName || 'Thần tượng'}!`,
+            timestamp: Date.now(),
+          },
+          ...prev,
+        ].slice(0, 4));
+        break;
+      }
+    }
+  };
 
   // Check if opened as audience on mobile via QR scan or as a player
   useEffect(() => {
@@ -59,6 +179,8 @@ export default function App() {
 
   // Sync state helper (with automatic optimistic local update + WebRTC P2P + REST/WS sync)
   const sendWs = (msg: WsMessage) => {
+    triggerToastForMessage(msg, roomState);
+
     // Optimistically update local state so every button click responds in 0ms
     setRoomState((prevRoom) => {
       if (!prevRoom) return prevRoom;
@@ -356,6 +478,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans pb-28 sm:pb-24">
+      {/* Toast Notification Alert Popup for Real-time Player/Voter Actions */}
+      <ToastNotification toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
+
       {/* Header */}
       <Header
         phase={roomState.phase}
