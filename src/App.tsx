@@ -39,12 +39,26 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const lastToastRef = useRef<Map<string, number>>(new Map());
 
-  // Trigger Host Toast Notification on Mobile / Player Action
+  // Trigger Host Toast Notification on Mobile / Player Action (with 4s deduplication)
   const triggerToastForMessage = (msg: WsMessage, currentRoom: RoomState) => {
     if (!msg || !msg.type) return;
     const isHostDevice = !isAudienceView && authenticatedPlayerSeat === null;
     if (!isHostDevice) return;
+
+    // Deduplication check: Ignore identical toast triggers within 4 seconds
+    const payloadStr = JSON.stringify(msg.payload || {});
+    const dedupKey = `${msg.type}_${payloadStr}`;
+    const now = Date.now();
+    const lastTime = lastToastRef.current.get(dedupKey) || 0;
+    if (now - lastTime < 4000) {
+      return;
+    }
+    lastToastRef.current.set(dedupKey, now);
+    if (lastToastRef.current.size > 50) {
+      lastToastRef.current.clear();
+    }
 
     switch (msg.type) {
       case 'BUY_IDOL': {
